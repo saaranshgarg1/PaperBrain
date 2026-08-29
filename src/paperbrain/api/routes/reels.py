@@ -76,3 +76,11 @@ def quarantine_reel(
         actor_id=body.actor_id,
         reason=body.reason,
     )
+
+
+@router.post("/{reel_id}/release", response_model=ReelResponse)
+def release_reel(
+    reel_id: UUID,
+    container: Annotated[Container, Depends(get_container)],
+) -> Reel:
+    return container.inventory_service.release_from_hold(reel_id, actor_id=None)

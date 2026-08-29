@@ -12,6 +12,13 @@ export function formatLength(mm: number): string {
   return `${mm} mm`;
 }
 
+/** Area of paper in square metres, from a width × length in millimetres. */
+export function formatArea(mm2: number): string {
+  const m2 = mm2 / 1_000_000;
+  if (m2 >= 10_000) return `${Math.round(m2).toLocaleString()} m²`;
+  return `${m2.toLocaleString(undefined, { maximumFractionDigits: 1 })} m²`;
+}
+
 export function formatKg(mm2: number, gsm: number): string {
   const kg = (mm2 * gsm) / 1_000_000_000;
   return `${kg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
@@ -25,6 +32,12 @@ export function formatDate(iso: string | null | undefined): string {
     month: "short",
     day: "numeric",
   });
+}
+
+export function daysUntil(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  return Math.ceil(ms / 86_400_000);
 }
 
 export function humanizeState(state: string): string {
@@ -57,6 +70,19 @@ export function humanizeStatus(status: string): string {
     feasible: "Working plan found",
     timeout_feasible: "Good plan found (time limit hit)",
     infeasible: "No feasible plan — check inventory",
+  };
+  return map[status] ?? status;
+}
+
+export function humanizeOrderStatus(status: string): string {
+  const map: Record<string, string> = {
+    draft: "Draft",
+    confirmed: "Open",
+    validation_required: "Needs checking",
+    released: "Released",
+    running: "Being cut",
+    complete: "Fulfilled ✓",
+    cancelled: "Cancelled",
   };
   return map[status] ?? status;
 }

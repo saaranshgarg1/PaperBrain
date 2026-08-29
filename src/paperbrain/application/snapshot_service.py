@@ -29,7 +29,12 @@ class SnapshotService:
         self._machines = machines
         self._materials = materials
 
-    def create(self, policy: PolicyProfile) -> PlanningSnapshot:
+    def create(
+        self,
+        policy: PolicyProfile,
+        *,
+        order_ids: frozenset[UUID] | None = None,
+    ) -> PlanningSnapshot:
         reels = tuple(item for item in self._reels.list_all() if item.is_executable)
         reel_ids = {item.id for item in reels}
         segments = tuple(
@@ -37,17 +42,23 @@ class SnapshotService:
             for item in self._segments.list_all()
             if item.reel_id in reel_ids and item.inspection_verified
         )
-        orders = tuple(
-            item
+        plannable = {
+            item.id: item
             for item in self._orders.list_all()
             if item.status in {OrderStatus.CONFIRMED, OrderStatus.RELEASED, OrderStatus.RUNNING}
-        )
-        order_ids = {item.id for item in orders}
+        }
+        if order_ids is None:
+            orders = tuple(plannable.values())
+        else:
+            orders = tuple(
+                plannable[order_id] for order_id in plannable.keys() & order_ids
+            )
+        order_ids_selected = {item.id for item in orders}
         return PlanningSnapshot(
             created_at=datetime.now(UTC),
             orders=orders,
             order_lines=tuple(
-                item for item in self._orders.list_lines() if item.order_id in order_ids
+                item for item in self._orders.list_lines() if item.order_id in order_ids_selected
             ),
             reels=reels,
             reel_segments=segments,

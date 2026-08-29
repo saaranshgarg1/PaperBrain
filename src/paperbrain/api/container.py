@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -41,6 +42,7 @@ class Container:
     locations: dict[str, UUID] = field(default_factory=dict)
     customers: dict[str, UUID] = field(default_factory=dict)
     plan_reports: dict[UUID, dict] = field(default_factory=dict)
+    executed_plans: dict[UUID, datetime] = field(default_factory=dict)
     persistence: FileStatePersistence | None = None
 
     def persist(self) -> None:
@@ -57,6 +59,7 @@ class Container:
             locations=self.locations,
             customers=self.customers,
             plan_reports=self.plan_reports,
+            executed_plans=self.executed_plans,
         )
         self.persistence.save(state)
 
@@ -96,12 +99,13 @@ def build_container(
     if persistence is not None:
         state = persistence.load()
         if state is not None:
-            locations, customers, plan_reports = restore_state(
+            locations, customers, plan_reports, executed_plans = restore_state(
                 state, reels, segments, orders, machines, materials, events, plans
             )
             container.locations = locations
             container.customers = customers
             container.plan_reports = plan_reports
+            container.executed_plans = executed_plans
 
     if seed_demo and not reels.list_all():
         from paperbrain.demo.bootstrap import bootstrap_demo

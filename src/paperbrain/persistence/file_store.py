@@ -170,6 +170,7 @@ def capture_state(
     locations: dict[str, UUID],
     customers: dict[str, UUID],
     plan_reports: dict[UUID, dict],
+    executed_plans: dict[UUID, datetime],
 ) -> dict[str, Any]:
     return {
         "reels": reels.list_all(),
@@ -186,6 +187,9 @@ def capture_state(
         "plan_reports": {
             str(plan_id): report for plan_id, report in plan_reports.items()
         },
+        "executed_plans": {
+            str(plan_id): executed_at for plan_id, executed_at in executed_plans.items()
+        },
     }
 
 
@@ -198,7 +202,7 @@ def restore_state(
     materials: InMemoryMaterialRepository,
     events: InMemoryEventStore,
     plans: InMemoryPlanRepository,
-) -> tuple[dict[str, UUID], dict[str, UUID], dict[UUID, dict]]:
+) -> tuple[dict[str, UUID], dict[str, UUID], dict[UUID, dict], dict[UUID, datetime]]:
     for reel in state["reels"]:
         reels.save(reel)
     for segment in state["reel_segments"]:
@@ -229,4 +233,14 @@ def restore_state(
         UUID(str(plan_id)): report
         for plan_id, report in state.get("plan_reports", {}).items()
     }
-    return locations, customers, plan_reports
+    executed_plans: dict[UUID, datetime] = {
+        UUID(str(plan_id)): _parse_datetime(executed_at)
+        for plan_id, executed_at in state.get("executed_plans", {}).items()
+    }
+    return locations, customers, plan_reports, executed_plans
+
+
+def _parse_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))

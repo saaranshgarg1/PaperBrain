@@ -36,12 +36,21 @@ Open **http://localhost:8000** in a browser. The UI is designed for people with 
 knowledge only — no API calls needed. The flow it walks you through:
 
 1. **Import Old Records** — upload your existing reel stock and customer orders as CSV.
-   "Check first" previews what would happen without saving anything.
-2. **Paper Rolls** — confirm the imported rolls as checked (one click) so planning may use them.
-3. **My Machine** — enter what your sheeter can do (widths, lanes, trims, kerf).
-4. **Cutting Plans** — pick what matters most (least waste, on-time delivery, …) and press
-   "Create cutting plan". You get step-by-step run instructions with a to-scale diagram of
-   how each roll is slit, plus the estimated cost of the wasted paper.
+   "Check first" previews what would happen without saving anything. Import again any
+   time: new records are added, duplicates skipped.
+2. **Paper Rolls** — every roll, with "+ Add a roll" for hand entry, "✓ Check" to confirm
+   imported rolls, "Take off shelf"/"Put back" for damaged or returned rolls.
+3. **Customer Orders** — "+ Take an order" for phone orders, "Cancel order" to drop one.
+4. **My Machine** — enter what your sheeter can do (widths, lanes, trims, kerf).
+5. **Cutting Plans** — tick which orders to include (or select all), pick what matters
+   most (least waste, on-time delivery, …), press "Create cutting plan". You get
+   step-by-step run instructions with a to-scale diagram of how each roll is slit.
+   Then press **"Carry out this plan"**: the paper is marked as used from each roll
+   (leftovers stay in stock as "Open"), finished orders are marked fulfilled, and
+   the dashboard statistics update immediately.
+6. **Home** — live statistics: stock vs open demand per paper type, coverage warnings
+   ("SBS 250: 64% — short"), orders coming in per week, waste of the latest plan, and
+   a "Needs your attention" list (rolls to check, late orders, missing machine).
 
 Optional demo data (1 machine, 2 reels, 1 order) to explore without importing anything:
 
@@ -54,14 +63,24 @@ or press "Try the demo data" on the empty home screen (only works while stock is
 ## Hotstart (restart where you left off)
 
 Every successful change is written atomically to a JSON snapshot (default `data/state.json`).
-On startup the snapshot is loaded, so inventory, orders, machines, and past plans — including
-their cutting-pattern diagrams — all survive restarts. Configure or disable via:
+On startup the snapshot is loaded, so inventory, orders, machines, carried-out plans, and even
+the paper already consumed from each roll all survive restarts. Configure or disable via:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PAPERBRAIN_STATE_PATH` | `data/state.json` | Snapshot file; set empty to disable persistence |
 | `PAPERBRAIN_UI_DIST_PATH` | `apps/planner-web/dist` | Built SPA served at `/` |
 | `PAPERBRAIN_SEED_DEMO` | `false` | Seed demo data on first start |
+
+## API sketch
+
+- `POST /v1/reels`, `POST /v1/orders` — add records by hand (what the UI forms use)
+- `POST /v1/reels/{id}/verify | quarantine | release` — roll lifecycle
+- `POST /v1/orders/{id}/cancel` — drop an order
+- `POST /v1/locations`, `POST /v1/customers` — name-based reference data (created on the fly)
+- `POST /v1/planning/runs` — solve; optional `order_ids` to plan only selected orders
+- `POST /v1/execution/plans/{id}/execute` — carry out a plan: consumes paper, completes orders
+- `GET /v1/imports/reels/template`, `GET /v1/imports/orders/template` — CSV templates
 
 ## CSV import
 

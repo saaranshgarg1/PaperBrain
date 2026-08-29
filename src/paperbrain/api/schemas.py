@@ -165,6 +165,47 @@ class PlanningRequest(ApiModel):
     mode: str = Field(default="full", pattern="^(full|fast)$")
     time_limit_seconds: int | None = Field(default=None, ge=1, le=3600)
     seed: int = 314159
+    order_ids: tuple[UUID, ...] | None = Field(
+        default=None,
+        description="Plan only these orders (by id). Omit to plan every open order.",
+    )
+
+
+class ExecutedRunResponse(ApiModel):
+    reel_id: UUID
+    reel_code: str
+    consumed_length_mm: int
+    remaining_length_mm: int
+    reel_state: str
+
+
+class ExecutedOrderResponse(ApiModel):
+    order_id: UUID
+    external_id: str
+    completed: bool
+
+
+class ExecutePlanResponse(ApiModel):
+    executed: bool
+    plan_id: UUID
+    runs: tuple[ExecutedRunResponse, ...]
+    orders: tuple[ExecutedOrderResponse, ...]
+    produced_sheets: int
+
+
+class CancelOrderResponse(ApiModel):
+    id: UUID
+    external_id: str
+    status: OrderStatus
+
+
+class NamedEntityResponse(ApiModel):
+    id: UUID
+    name: str
+
+
+class NamedEntityCreate(ApiModel):
+    name: str = Field(min_length=1)
 
 
 class ViolationResponse(ApiModel):
@@ -245,6 +286,7 @@ class PlanningResponse(ApiModel):
     patterns: tuple[PatternResponse, ...] = ()
     order_lines: tuple[OrderLineSummaryResponse, ...] = ()
     reels: tuple[ReelSummaryResponse, ...] = ()
+    executed: bool = False
 
 
 class PlanSummaryResponse(ApiModel):
@@ -257,6 +299,7 @@ class PlanSummaryResponse(ApiModel):
     material_loss_minor: int = 0
     fresh_reels_opened: int = 0
     service_shortage_sheets: int = 0
+    executed: bool = False
 
 
 class ErrorResponse(ApiModel):

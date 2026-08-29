@@ -18,6 +18,7 @@ from paperbrain.api.routes import (
     materials,
     orders,
     planning,
+    references,
     reels,
     simulation,
 )
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(reels.router)
     app.include_router(orders.router)
     app.include_router(imports.router)
+    app.include_router(references.router)
     app.include_router(demo.router)
     app.include_router(planning.router)
     app.include_router(simulation.router)

@@ -103,6 +103,72 @@ class InventoryService:
         )
         return updated
 
+    def consume(
+        self,
+        reel_id: UUID,
+        length_mm: int,
+        *,
+        actor_id: UUID | None,
+    ) -> Reel:
+        """Cut `length_mm` of paper off a reel as part of executing a plan run."""
+        reel = self._reels.get(reel_id)
+        if reel.state not in {ReelState.UNOPENED, ReelState.OPENED, ReelState.RESERVED}:
+            raise DomainError(
+                DomainViolation(
+                    "INVALID_CONSUME_STATE",
+                    f"Reel {reel.reel_code} cannot be consumed while {reel.state.value}",
+                )
+            )
+        if length_mm <= 0:
+            raise DomainError(DomainViolation("INVALID_LENGTH", "Consumed length must be positive"))
+        if length_mm > reel.remaining_length_mm:
+            raise DomainError(
+                DomainViolation(
+                    "INSUFFICIENT_REEL_LENGTH",
+                    f"Reel {reel.reel_code} has only {reel.remaining_length_mm} mm left "
+                    f"but the plan uses {length_mm} mm",
+                )
+            )
+        remaining = reel.remaining_length_mm - length_mm
+        exhausted = remaining == 0
+        updated = replace(
+            reel,
+            remaining_length_mm=remaining,
+            state=ReelState.EXHAUSTED if exhausted else ReelState.OPENED,
+            opened_at=reel.opened_at or datetime.now(UTC),
+            reservation_id=None if exhausted else reel.reservation_id,
+            version=reel.version + 1,
+        )
+        self._reels.save(updated, expected_version=reel.version)
+        self._append_state_event(
+            updated,
+            EventType.REEL_EXHAUSTED if exhausted else EventType.RUN_COMPLETED,
+            actor_id,
+            reel.version,
+            {"consumed_length_mm": length_mm, "remaining_length_mm": remaining},
+        )
+        return updated
+
+    def release_from_hold(self, reel_id: UUID, *, actor_id: UUID | None) -> Reel:
+        reel = self._reels.get(reel_id)
+        if reel.state != ReelState.QUARANTINED:
+            raise DomainError(
+                DomainViolation("INVALID_STATE_TRANSITION", "Only a reel on hold can be released")
+            )
+        updated = replace(
+            reel,
+            state=ReelState.OPENED if reel.opened_at else ReelState.UNOPENED,
+            version=reel.version + 1,
+        )
+        self._reels.save(updated, expected_version=reel.version)
+        self._append_state_event(
+            updated,
+            EventType.REEL_RELEASED_FROM_HOLD,
+            actor_id,
+            reel.version,
+        )
+        return updated
+
     def move(self, reel_id: UUID, location_id: UUID, *, actor_id: UUID | None) -> Reel:
         reel = self._reels.get(reel_id)
         updated = replace(

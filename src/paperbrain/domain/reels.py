@@ -154,6 +154,9 @@ class Reel:
             raise DomainError(DomainViolation("NAIVE_TIMESTAMP", "Received timestamp must be timezone-aware"))
         if self.root_reel_id is None:
             object.__setattr__(self, "root_reel_id", self.id)
+        # An opened reel always carries its opening timestamp; is_fresh relies on it.
+        if self.state == ReelState.OPENED and self.opened_at is None:
+            object.__setattr__(self, "opened_at", self.received_at)
 
     @property
     def is_fresh(self) -> bool:

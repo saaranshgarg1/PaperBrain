@@ -56,6 +56,7 @@ export interface Order {
   customer_id: string;
   status: string;
   promised_at: string;
+  received_at: string;
   lines: OrderLine[];
 }
 
@@ -128,6 +129,39 @@ export interface PlanningResponse {
   validation_valid: boolean;
   violations: { code: string; message: string }[];
   created_at: string | null;
+  executed: boolean;
+}
+
+export interface PlanSummary {
+  plan_id: string;
+  created_at: string | null;
+  status: string;
+  policy_name: string;
+  run_count: number;
+  validation_valid: boolean | null;
+  material_loss_minor: number;
+  fresh_reels_opened: number;
+  service_shortage_sheets: number;
+  executed: boolean;
+}
+
+export interface ExecuteResult {
+  executed: boolean;
+  plan_id: string;
+  runs: {
+    reel_id: string;
+    reel_code: string;
+    consumed_length_mm: number;
+    remaining_length_mm: number;
+    reel_state: string;
+  }[];
+  orders: { order_id: string; external_id: string; completed: boolean }[];
+  produced_sheets: number;
+}
+
+export interface NamedEntity {
+  id: string;
+  name: string;
 }
 
 export interface ImportResult {
@@ -149,31 +183,76 @@ export interface ImportResult {
   }[];
 }
 
+export interface ReelDraft {
+  reel_code: string;
+  material_spec_id: string;
+  nominal_width_mm: number;
+  remaining_length_mm: number;
+  location_id: string;
+  state: "unopened" | "opened";
+  net_mass_kg?: number;
+}
+
+export interface OrderLineDraft {
+  sheet_width_mm: number;
+  sheet_length_mm: number;
+  quantity_required: number;
+  quantity_min: number;
+  quantity_max: number;
+  material_spec_id: string;
+  due_at: string;
+  earliest_start_at: string;
+  rotation_allowed: boolean;
+}
+
+export interface OrderDraft {
+  customer_id: string;
+  external_id: string;
+  received_at: string;
+  promised_at: string;
+  lines: OrderLineDraft[];
+}
+
 export const api = {
   materials: () => request<Material[]>("/v1/materials"),
   reels: () => request<Reel[]>("/v1/reels"),
   verifyReel: (id: string) =>
     request<Reel>(`/v1/reels/${id}/verify`, { method: "POST", body: "{}" }),
+  quarantineReel: (id: string, reason: string) =>
+    request<Reel>(`/v1/reels/${id}/quarantine`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  releaseReel: (id: string) =>
+    request<Reel>(`/v1/reels/${id}/release`, { method: "POST", body: "{}" }),
+  createReel: (draft: ReelDraft) =>
+    request<Reel>("/v1/reels", { method: "POST", body: JSON.stringify(draft) }),
   orders: () => request<Order[]>("/v1/orders"),
+  createOrder: (draft: OrderDraft) =>
+    request<Order>("/v1/orders", { method: "POST", body: JSON.stringify(draft) }),
+  cancelOrder: (id: string) =>
+    request<{ id: string; status: string }>(`/v1/orders/${id}/cancel`, {
+      method: "POST",
+      body: "{}",
+    }),
+  locations: () => request<NamedEntity[]>("/v1/locations"),
+  createLocation: (name: string) =>
+    request<NamedEntity>("/v1/locations", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  customers: () => request<NamedEntity[]>("/v1/customers"),
+  createCustomer: (name: string) =>
+    request<NamedEntity>("/v1/customers", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
   machines: () => request<Machine[]>("/v1/machines"),
   createMachine: (draft: MachineDraft) =>
     request<Machine>("/v1/machines", { method: "POST", body: JSON.stringify(draft) }),
-  plans: () =>
-    request<
-      {
-        plan_id: string;
-        created_at: string | null;
-        status: string;
-        policy_name: string;
-        run_count: number;
-        validation_valid: boolean | null;
-        material_loss_minor: number;
-        fresh_reels_opened: number;
-        service_shortage_sheets: number;
-      }[]
-    >("/v1/planning/plans"),
+  plans: () => request<PlanSummary[]>("/v1/planning/plans"),
   plan: (id: string) => request<PlanningResponse>(`/v1/planning/plans/${id}`),
-  solve: (policy: string, timeLimit: number) =>
+  solve: (policy: string, timeLimit: number, orderIds?: string[]) =>
     request<PlanningResponse>("/v1/planning/runs", {
       method: "POST",
       body: JSON.stringify({
@@ -181,7 +260,13 @@ export const api = {
         time_limit_seconds: timeLimit,
         seed: 42,
         mode: "full",
+        ...(orderIds ? { order_ids: orderIds } : {}),
       }),
+    }),
+  executePlan: (id: string) =>
+    request<ExecuteResult>(`/v1/execution/plans/${id}/execute`, {
+      method: "POST",
+      body: "{}",
     }),
   seedDemo: () => request<{ code: string }>("/v1/demo/seed", { method: "POST", body: "{}" }),
   importReels: (file: File, dryRun: boolean) => {

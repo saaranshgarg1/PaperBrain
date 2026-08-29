@@ -36,7 +36,10 @@ def create_planning_run(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> PlanningResponse:
     policy = get_policy(body.policy_profile)
-    snapshot = container.snapshot_service.create(policy)
+    snapshot = container.snapshot_service.create(
+        policy,
+        order_ids=frozenset(body.order_ids) if body.order_ids is not None else None,
+    )
     result = container.planning_service.solve(
         snapshot,
         time_limit_seconds=body.time_limit_seconds or settings.default_time_limit_seconds,
@@ -81,6 +84,7 @@ def list_plans(
                 service_shortage_sheets=int(
                     objective.get("service_shortage_sheets", 0)
                 ),
+                executed=plan.id in container.executed_plans,
             )
         )
     return tuple(summaries)
@@ -94,7 +98,9 @@ def get_plan(
     plan = container.plans.get(plan_id)
     stored = container.plan_reports.get(plan_id)
     if stored is not None:
-        return PlanningResponse.model_validate(stored)
+        response = PlanningResponse.model_validate(stored)
+        response.executed = plan_id in container.executed_plans
+        return response
     prepared = container.planning_contexts.get(plan_id)
     if prepared is None:
         raise NotFoundError(f"Planning context for plan {plan_id} was not found")
