@@ -35,6 +35,7 @@ export function Inventory({
   onChange: () => Promise<void>;
 }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [measuring, setMeasuring] = useState<Reel | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,6 +114,17 @@ export function Inventory({
         />
       )}
 
+      {measuring && (
+        <MeasureRollDialog
+          reel={measuring}
+          onClose={() => setMeasuring(null)}
+          onDone={async () => {
+            setMeasuring(null);
+            await onChange();
+          }}
+        />
+      )}
+
       {unchecked.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <Button kind="success" onClick={() => void verifyAll()} disabled={busy === "verify"}>
@@ -137,7 +149,18 @@ export function Inventory({
               <span key="mat" style={{ opacity: dimmed ? 0.5 : 1 }}>
                 {materialLabel(materialById, reel.material_spec_id)}
               </span>,
-              `${reel.nominal_width_mm.toLocaleString()} mm`,
+              (() => {
+                const spoilt = (reel.left_unusable_mm ?? 0) + (reel.right_unusable_mm ?? 0);
+                if (spoilt <= 0) return `${reel.nominal_width_mm.toLocaleString()} mm`;
+                return (
+                  <span key="width">
+                    {reel.nominal_width_mm.toLocaleString()} mm
+                    <span style={{ display: "block", color: "#b45309", fontSize: 12 }}>
+                      {spoilt.toLocaleString()} mm spoilt edges
+                    </span>
+                  </span>
+                );
+              })(),
               reel.state === "exhausted" ? (
                 <StatusChip text="Nothing left" tone="gray" />
               ) : (
@@ -152,11 +175,18 @@ export function Inventory({
                 )}
               </span>,
               <span key="actions" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {reel.verification_state === "provisional" && reel.state !== "exhausted" && (
-                  <Button small onClick={() => void api.verifyReel(reel.id).then(onChange)} disabled={busy === reel.id}>
-                    ✓ Check
-                  </Button>
-                )}
+                {(reel.verification_state === "provisional" ||
+                  reel.state === "unopened" ||
+                  reel.state === "opened") &&
+                  reel.state !== "exhausted" && (
+                    <Button
+                      small
+                      onClick={() => setMeasuring(reel)}
+                      disabled={busy === reel.id}
+                    >
+                      {reel.verification_state === "provisional" ? "✓ Check roll" : "Update"}
+                    </Button>
+                  )}
                 {(reel.state === "unopened" || reel.state === "opened") && (
                   <Button small kind="danger" onClick={() => void quarantine(reel)} disabled={busy === reel.id}>
                     Take off shelf
@@ -173,6 +203,107 @@ export function Inventory({
         />
       )}
     </div>
+  );
+}
+
+function MeasureRollDialog({
+  reel,
+  onClose,
+  onDone,
+}: {
+  reel: Reel;
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const [length, setLength] = useState(String(reel.remaining_length_mm));
+  const [left, setLeft] = useState(String(reel.left_unusable_mm ?? 0));
+  const [right, setRight] = useState(String(reel.right_unusable_mm ?? 0));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const lengthNum = Number(length);
+  const leftNum = Number(left);
+  const rightNum = Number(right);
+  const problem = !Number.isFinite(lengthNum) || lengthNum <= 0
+    ? "How much paper is actually left? (millimetres along the roll)"
+    : leftNum < 0 || rightNum < 0 || !Number.isFinite(leftNum) || !Number.isFinite(rightNum)
+      ? "Edge damage can't be negative"
+      : leftNum + rightNum >= reel.nominal_width_mm
+        ? "That much edge damage leaves no usable paper — take the roll off the shelf instead"
+        : null;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.measureReel(reel.id, Math.round(lengthNum), Math.round(leftNum), Math.round(rightNum));
+      await onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save the check");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel
+      title={
+        reel.verification_state === "provisional"
+          ? `Check roll ${reel.reel_code}`
+          : `Update roll ${reel.reel_code}`
+      }
+    >
+      <p style={{ color: "#6b7280", marginTop: 0 }}>
+        Go to the shelf and confirm what you see. Roll is {reel.nominal_width_mm.toLocaleString()} mm
+        wide{reel.verification_state === "provisional" ? ", record says" : ", last checked at"}{" "}
+        {formatLength(reel.remaining_length_mm)} of paper.
+      </p>
+      {error && <ErrorBanner text={error} />}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
+        <Field label="Paper actually left (mm)" hint="Measure along the roll">
+          <input
+            type="number"
+            min={1}
+            value={length}
+            onChange={(e) => setLength(e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Spoilt from left side (mm)" hint="Crushed or damp edge — planning keeps clear of it">
+          <input
+            type="number"
+            min={0}
+            value={left}
+            onChange={(e) => setLeft(e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Spoilt from right side (mm)">
+          <input
+            type="number"
+            min={0}
+            value={right}
+            onChange={(e) => setRight(e.target.value)}
+            style={inputStyle}
+          />
+        </Field>
+      </div>
+      {leftNum + rightNum > 0 && leftNum + rightNum < reel.nominal_width_mm && (
+        <p style={{ color: "#92400e", fontSize: 13, marginTop: 8 }}>
+          Usable width becomes {(reel.nominal_width_mm - leftNum - rightNum).toLocaleString()} mm of{" "}
+          {reel.nominal_width_mm.toLocaleString()} mm — {Math.round(
+            ((leftNum + rightNum) / reel.nominal_width_mm) * 100,
+          )}% of the roll's width is spoilt.
+        </p>
+      )}
+      {problem && <p style={{ color: "#b45309", fontSize: 13, marginTop: 8 }}>{problem}</p>}
+      <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+        <Button kind="primary" onClick={() => void save()} disabled={saving || problem !== null}>
+          {saving ? "Saving…" : "Save check"}
+        </Button>
+        <Button onClick={onClose}>Cancel</Button>
+      </div>
+    </Panel>
   );
 }
 

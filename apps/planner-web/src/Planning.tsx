@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type {
   ExecuteResult,
   Machine,
+  ManualPlanRun,
   Material,
   NamedEntity,
   Order,
@@ -19,7 +20,7 @@ import {
   humanizeStatus,
 } from "./format";
 import { materialLabel } from "./Dashboard";
-import { Button, ErrorBanner, Notice, Panel, Stat, StatusChip, Table } from "./ui";
+import { Button, ErrorBanner, Field, Notice, Panel, Stat, StatusChip, Table, inputStyle } from "./ui";
 
 export function Planning({
   reels,
@@ -278,17 +279,368 @@ export function Planning({
               <Button key="open" kind="ghost" onClick={() => void openPlan(item.plan_id)}>
                 {formatDate(item.created_at)}
               </Button>,
-              humanizePolicy(item.policy_name),
+              item.policy_name === "manual" ? "Recorded by hand" : humanizePolicy(item.policy_name),
               item.validation_valid === false ? "⚠️ Needs attention" : humanizeStatus(item.status),
-              formatMoney(item.material_loss_minor, currency),
+              item.material_loss_minor ? formatMoney(item.material_loss_minor, currency) : "—",
               item.fresh_reels_opened,
               item.executed ? <StatusChip key="e" text="Done ✓" tone="green" /> : "—",
             ])}
           />
         </div>
       )}
+
+      <div style={{ marginTop: 32 }}>
+        <RecordManualCuts
+          reels={reels}
+          orders={openOrders}
+          machines={machines}
+          onDone={async () => {
+            await onChanged();
+            await loadHistory();
+          }}
+        />
+      </div>
     </div>
   );
+}
+
+interface ManualLaneDraft {
+  order_line_id: string;
+  start_mm: string;
+}
+
+function RecordManualCuts({
+  reels,
+  orders,
+  machines,
+  onDone,
+}: {
+  reels: Reel[];
+  orders: Order[];
+  machines: Machine[];
+  onDone: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [runs, setRuns] = useState<ManualRunDraft[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ExecuteResult | null>(null);
+
+  const openLines = orders.flatMap((o) =>
+    o.lines.map((line) => ({ order: o.external_id, ...line })),
+  );
+
+  const start = () => {
+    setOpen(true);
+    setRuns([
+      {
+        reel_id: reels[0]?.id ?? "",
+        machine_id: machines[0]?.id ?? "",
+        crosscut_length_mm: "",
+        crosscut_count: "",
+        left_trim_mm: "0",
+        right_trim_mm: "0",
+        lanes: [],
+      },
+    ]);
+    setResult(null);
+  };
+
+  const problem = runs.length === 0 || machines.length === 0
+    ? machines.length === 0 ? "Add your machine first (under “My Machine”)." : null
+    : runs.some((run) => {
+        const length = Number(run.crosscut_length_mm);
+        const count = Number(run.crosscut_count);
+        if (!run.reel_id) return true;
+        if (!Number.isFinite(length) || length <= 0) return true;
+        if (!Number.isFinite(count) || count <= 0) return true;
+        if (run.lanes.length === 0) return true;
+        return run.lanes.some((lane) => {
+          const startMm = Number(lane.start_mm);
+          const line = openLines.find((l) => l.id === lane.order_line_id);
+          return (
+            !lane.order_line_id ||
+            !Number.isFinite(startMm) ||
+            startMm < 0 ||
+            !line
+          );
+        });
+      })
+      ? "Every step needs a roll, the machine, a sheet length, the number of cuts, and at least one strip with its starting position."
+      : null;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const payload: ManualPlanRun[] = runs.map((run) => ({
+        reel_id: run.reel_id,
+        machine_id: run.machine_id,
+        crosscut_length_mm: Math.round(Number(run.crosscut_length_mm)),
+        crosscut_count: Math.round(Number(run.crosscut_count)),
+        left_trim_mm: Math.round(Number(run.left_trim_mm) || 0),
+        right_trim_mm: Math.round(Number(run.right_trim_mm) || 0),
+        lanes: run.lanes.map((lane) => {
+          const line = openLines.find((l) => l.id === lane.order_line_id)!;
+          return {
+            order_line_id: lane.order_line_id,
+            start_mm: Math.round(Number(lane.start_mm)),
+            width_mm: line.sheet_width_mm,
+          };
+        }),
+      }));
+      const outcome = await api.manualExecute(payload);
+      setResult(outcome);
+      setRuns([]);
+      await onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not record the cuts");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel title="Already cut it by hand?">
+      <p style={{ color: "#6b7280", marginTop: 0 }}>
+        If the operator ran the machine without a PaperBrain plan, record what actually happened:
+        which roll, which strips across the width, how many cross-cuts. PaperBrain deducts the
+        paper, updates the orders, and the leftover stays in stock.
+      </p>
+      {!open ? (
+        <Button onClick={start}>✍️ Record what I actually cut</Button>
+      ) : (
+        <>
+          {error && <ErrorBanner text={error} />}
+          {runs.map((run, runIndex) => (
+            <div
+              key={runIndex}
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 10,
+                padding: 16,
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                <strong>Step {runIndex + 1}</strong>
+                {runs.length > 1 && (
+                  <Button
+                    small
+                    kind="danger"
+                    onClick={() => setRuns((current) => current.filter((_, i) => i !== runIndex))}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+                <Field label="Roll used">
+                  <select
+                    value={run.reel_id}
+                    onChange={(e) =>
+                      setRuns((current) =>
+                        current.map((r, i) => (i === runIndex ? { ...r, reel_id: e.target.value } : r)),
+                      )
+                    }
+                    style={inputStyle}
+                  >
+                    {reels.map((reel) => (
+                      <option key={reel.id} value={reel.id}>
+                        {reel.reel_code} ({reel.nominal_width_mm} mm wide,{" "}
+                        {humanizeState(reel.state)})
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Machine">
+                  <select
+                    value={run.machine_id}
+                    onChange={(e) =>
+                      setRuns((current) =>
+                        current.map((r, i) => (i === runIndex ? { ...r, machine_id: e.target.value } : r)),
+                      )
+                    }
+                    style={inputStyle}
+                  >
+                    {machines.map((machine) => (
+                      <option key={machine.id} value={machine.id}>
+                        {machine.code}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Sheet length cut (mm)" hint="The length setting on the machine">
+                  <input
+                    type="number"
+                    min={1}
+                    value={run.crosscut_length_mm}
+                    onChange={(e) =>
+                      setRuns((current) =>
+                        current.map((r, i) => (i === runIndex ? { ...r, crosscut_length_mm: e.target.value } : r)),
+                      )
+                    }
+                    style={inputStyle}
+                    placeholder="e.g. 600"
+                  />
+                </Field>
+                <Field label="Number of cuts" hint="How many sheets came off">
+                  <input
+                    type="number"
+                    min={1}
+                    value={run.crosscut_count}
+                    onChange={(e) =>
+                      setRuns((current) =>
+                        current.map((r, i) => (i === runIndex ? { ...r, crosscut_count: e.target.value } : r)),
+                      )
+                    }
+                    style={inputStyle}
+                    placeholder="e.g. 500"
+                  />
+                </Field>
+              </div>
+
+              <div style={{ marginTop: 12, fontWeight: 600, fontSize: 14 }}>Strips across the roll width</div>
+              <p style={{ color: "#9ca3af", fontSize: 12, margin: "4px 0 8px" }}>
+                Say where each strip starts, measuring from the left edge of the roll. Width comes
+                from the order sheet size.
+              </p>
+              {run.lanes.map((lane, laneIndex) => (
+                <div
+                  key={laneIndex}
+                  style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: 12, marginBottom: 8 }}
+                >
+                  <Field label={laneIndex === 0 ? "Which order sheet" : undefined}>
+                    <select
+                      value={lane.order_line_id}
+                      onChange={(e) =>
+                        setRuns((current) =>
+                          current.map((r, i) =>
+                            i === runIndex
+                              ? {
+                                  ...r,
+                                  lanes: r.lanes.map((l, j) =>
+                                    j === laneIndex ? { ...l, order_line_id: e.target.value } : l,
+                                  ),
+                                }
+                              : r,
+                          ),
+                        )
+                      }
+                      style={inputStyle}
+                    >
+                      <option value="">Choose a sheet…</option>
+                      {openLines.map((line) => (
+                        <option key={line.id} value={line.id}>
+                          {line.order} · {line.sheet_width_mm}×{line.sheet_length_mm} mm
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label={laneIndex === 0 ? "Starts at (mm)" : undefined}>
+                    <input
+                      type="number"
+                      min={0}
+                      value={lane.start_mm}
+                      onChange={(e) =>
+                        setRuns((current) =>
+                          current.map((r, i) =>
+                            i === runIndex
+                              ? {
+                                  ...r,
+                                  lanes: r.lanes.map((l, j) =>
+                                    j === laneIndex ? { ...l, start_mm: e.target.value } : l,
+                                  ),
+                                }
+                              : r,
+                          ),
+                        )
+                      }
+                      style={inputStyle}
+                      placeholder="e.g. 10"
+                    />
+                  </Field>
+                  <Button
+                    small
+                    kind="danger"
+                    onClick={() =>
+                      setRuns((current) =>
+                        current.map((r, i) =>
+                          i === runIndex
+                            ? { ...r, lanes: r.lanes.filter((_, j) => j !== laneIndex) }
+                            : r,
+                        ),
+                      )
+                    }
+                  >
+                    ✕
+                  </Button>
+                </div>
+              ))}
+              <Button
+                small
+                onClick={() =>
+                  setRuns((current) =>
+                    current.map((r, i) =>
+                      i === runIndex ? { ...r, lanes: [...r.lanes, { order_line_id: "", start_mm: "" }] } : r,
+                    ),
+                  )
+                }
+              >
+                + Add a strip
+              </Button>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <Button
+              onClick={() =>
+                setRuns((current) => [
+                  ...current,
+                  {
+                    reel_id: reels[0]?.id ?? "",
+                    machine_id: machines[0]?.id ?? "",
+                    crosscut_length_mm: "",
+                    crosscut_count: "",
+                    left_trim_mm: "0",
+                    right_trim_mm: "0",
+                    lanes: [],
+                  },
+                ])
+              }
+            >
+              + Another roll
+            </Button>
+            <Button kind="primary" onClick={() => void save()} disabled={saving || problem !== null}>
+              {saving ? "Recording…" : "Record these cuts"}
+            </Button>
+            <Button onClick={() => setOpen(false)}>Close</Button>
+          </div>
+          {problem && <p style={{ color: "#b45309", fontSize: 13, marginTop: 8 }}>{problem}</p>}
+        </>
+      )}
+      {result && (
+        <Notice kind="blue">
+          <strong>Recorded ✓</strong> — {result.produced_sheets.toLocaleString()} sheets produced.
+          {result.orders.length > 0 &&
+            ` Order(s) ${result.orders.filter((o) => o.completed).map((o) => o.external_id).join(", ") || "none"} fulfilled.`}
+          {result.runs.length > 0 &&
+            ` Paper used: ${result.runs
+              .map((r) => `${r.reel_code} −${formatLength(r.consumed_length_mm)}`)
+              .join(" · ")}.`}
+        </Notice>
+      )}
+    </Panel>
+  );
+}
+
+interface ManualRunDraft {
+  reel_id: string;
+  machine_id: string;
+  crosscut_length_mm: string;
+  crosscut_count: string;
+  left_trim_mm: string;
+  right_trim_mm: string;
+  lanes: ManualLaneDraft[];
 }
 
 function Checklist({

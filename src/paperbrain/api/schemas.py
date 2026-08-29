@@ -71,6 +71,8 @@ class ReelResponse(ReelCreate):
     version: int
     is_fresh: bool
     is_executable: bool
+    left_unusable_mm: int = 0
+    right_unusable_mm: int = 0
 
 
 class ReserveRequest(ApiModel):
@@ -206,6 +208,46 @@ class NamedEntityResponse(ApiModel):
 
 class NamedEntityCreate(ApiModel):
     name: str = Field(min_length=1)
+
+
+class MeasureReelRequest(ApiModel):
+    remaining_length_mm: int = Field(gt=0)
+    left_unusable_mm: int = Field(default=0, ge=0)
+    right_unusable_mm: int = Field(default=0, ge=0)
+
+
+class CompleteOrderRequest(ApiModel):
+    note: str | None = None
+
+
+class ManualCutLane(ApiModel):
+    """One strip cut across the width of the roll."""
+    order_line_id: UUID
+    start_mm: int = Field(ge=0)
+    width_mm: int = Field(gt=0)
+
+
+class ManualPlanRun(ApiModel):
+    """One step the operator performed on the machine."""
+    reel_id: UUID
+    machine_id: UUID
+    crosscut_length_mm: int = Field(gt=0)
+    crosscut_count: int = Field(gt=0)
+    lanes: tuple[ManualCutLane, ...] = Field(min_length=1)
+    left_trim_mm: int = Field(default=0, ge=0)
+    right_trim_mm: int = Field(default=0, ge=0)
+
+
+class ManualPlanRequest(ApiModel):
+    runs: tuple[ManualPlanRun, ...] = Field(min_length=1)
+
+
+class ManualExecuteResponse(ApiModel):
+    executed: bool
+    runs: tuple[ExecutedRunResponse, ...]
+    orders: tuple[ExecutedOrderResponse, ...]
+    produced_sheets: int
+    warnings: tuple[str, ...] = ()
 
 
 class ViolationResponse(ApiModel):

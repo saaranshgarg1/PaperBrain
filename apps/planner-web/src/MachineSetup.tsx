@@ -78,6 +78,7 @@ export function MachineSetup({
   onChange: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState<MachineDraft>(DEFAULT_MACHINE);
+  const [showForm, setShowForm] = useState(machines.length === 0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -100,6 +101,7 @@ export function MachineSetup({
       await api.createMachine(draft);
       await onChange();
       setSaved(true);
+      setShowForm(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the machine");
     } finally {
@@ -109,16 +111,15 @@ export function MachineSetup({
 
   return (
     <div>
-      <h2>My Machine</h2>
+      <h2>My Machines</h2>
       <p style={{ color: "#6b7280" }}>
-        PaperBrain only suggests plans your machine can actually run. Fill in what your sheeter can
-        do — the numbers below are typical starting values, so change what you know and leave the
-        rest.
+        PaperBrain only suggests plans your machines can actually run. Add every sheeter or
+        cutter you use — the numbers below are typical starting values, so change what you know
+        and leave the rest.
       </p>
 
       {machines.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <h3>Machines already set up</h3>
           <Table
             headers={["Machine", "Roll widths it accepts", "Strips side-by-side"]}
             rows={machines.map((machine) => [
@@ -130,8 +131,14 @@ export function MachineSetup({
         </div>
       )}
 
-      {machines.length === 0 && (
-        <Panel title="Add your machine">
+      {!showForm && (
+        <Button kind="primary" onClick={() => setShowForm(true)}>
+          + Add another machine
+        </Button>
+      )}
+
+      {showForm && (
+        <Panel title="Add a machine" actions={<Button small onClick={() => setShowForm(false)}>Close</Button>}>
           {error && <ErrorBanner text={error} />}
           <Field label="Machine name" hint="Whatever your team calls it on the floor">
             <input
@@ -154,18 +161,17 @@ export function MachineSetup({
             ))}
           </div>
           {problem && <p style={{ color: "#b45309", fontSize: 13, marginTop: 16 }}>{problem}</p>}
+          <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+            <Button kind="primary" onClick={() => void save()} disabled={saving || problem !== null}>
+              {saving ? "Saving…" : "Save machine"}
+            </Button>
+            {machines.length > 0 && <Button onClick={() => setShowForm(false)}>Cancel</Button>}
+          </div>
           {saved && (
             <div style={{ marginTop: 16, color: "#16a34a", fontWeight: 600 }}>
               ✓ Saved. PaperBrain can plan on this machine now.
             </div>
           )}
-          <Button
-            kind="primary"
-            onClick={() => void save()}
-            disabled={saving || problem !== null}
-          >
-            {saving ? "Saving…" : "Save machine"}
-          </Button>
         </Panel>
       )}
     </div>

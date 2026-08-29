@@ -10,6 +10,7 @@ from paperbrain.api.container import Container
 from paperbrain.api.dependencies import get_container
 from paperbrain.api.schemas import (
     CancelOrderResponse,
+    CompleteOrderRequest,
     OrderCreate,
     OrderLineResponse,
     OrderResponse,
@@ -59,6 +60,28 @@ def cancel_order(
     if order.status == OrderStatus.CANCELLED:
         return CancelOrderResponse(id=order.id, external_id=order.external_id, status=order.status)
     updated = replace(order, status=OrderStatus.CANCELLED, version=order.version + 1)
+    lines = tuple(
+        line for line in container.orders.list_lines() if line.order_id == order.id
+    )
+    container.orders.save(updated, lines)
+    return CancelOrderResponse(id=updated.id, external_id=updated.external_id, status=updated.status)
+
+
+@router.post("/{order_id}/complete", response_model=CancelOrderResponse)
+def complete_order(
+    order_id: UUID,
+    body: CompleteOrderRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> CancelOrderResponse:
+    """Mark an order as fulfilled by hand (e.g. produced outside PaperBrain)."""
+    order = container.orders.get(order_id)
+    if order.status == OrderStatus.CANCELLED:
+        raise DomainError(
+            DomainViolation("ORDER_CANCELLED", "A cancelled order cannot be completed")
+        )
+    if order.status == OrderStatus.COMPLETE:
+        return CancelOrderResponse(id=order.id, external_id=order.external_id, status=order.status)
+    updated = replace(order, status=OrderStatus.COMPLETE, version=order.version + 1)
     lines = tuple(
         line for line in container.orders.list_lines() if line.order_id == order.id
     )

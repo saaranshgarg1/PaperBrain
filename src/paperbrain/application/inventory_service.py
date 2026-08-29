@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -9,7 +10,7 @@ from paperbrain.application.ports import EventStore, ReelRepository, ReelSegment
 from paperbrain.domain.enums import EventType, ReelState, VerificationState
 from paperbrain.domain.errors import DomainError, DomainViolation
 from paperbrain.domain.events import DomainEvent
-from paperbrain.domain.reels import Reel
+from paperbrain.domain.reels import Reel, ReelSegment
 
 
 class InventoryService:
@@ -100,6 +101,68 @@ class InventoryService:
             actor_id,
             reel.version,
             {"reason": reason},
+        )
+        return updated
+
+    def measure_reel(
+        self,
+        reel_id: UUID,
+        *,
+        remaining_length_mm: int,
+        left_unusable_mm: int = 0,
+        right_unusable_mm: int = 0,
+        actor_id: UUID | None,
+    ) -> Reel:
+        """Confirm or correct a roll's actual size and edge damage after a physical check.
+
+        Marks the roll as checked (trusted for planning) and records how much paper is
+        spoilt on each side so planning keeps clear of the damaged edges.
+        """
+        reel = self._reels.get(reel_id)
+        if reel.state == ReelState.QUARANTINED:
+            raise DomainError(
+                DomainViolation("INVALID_STATE_TRANSITION", "A roll on hold cannot be measured")
+            )
+        if remaining_length_mm <= 0:
+            raise DomainError(
+                DomainViolation("INVALID_LENGTH", "Measured length must be positive; use 0 only with a scrap action")
+            )
+        if min(left_unusable_mm, right_unusable_mm) < 0:
+            raise DomainError(DomainViolation("INVALID_LENGTH", "Edge damage cannot be negative"))
+        if left_unusable_mm + right_unusable_mm >= reel.nominal_width_mm:
+            raise DomainError(
+                DomainViolation(
+                    "INVALID_LENGTH",
+                    "Edge damage covers the whole width of the roll",
+                )
+            )
+        updated = replace(
+            reel,
+            remaining_length_mm=remaining_length_mm,
+            verification_state=VerificationState.VERIFIED,
+            length_confidence=Decimal("1"),
+            version=reel.version + 1,
+        )
+        self._reels.save(updated, expected_version=reel.version)
+        segment = ReelSegment(
+            reel_id=updated.id,
+            start_length_mm=0,
+            end_length_mm=remaining_length_mm,
+            left_unusable_mm=left_unusable_mm,
+            right_unusable_mm=right_unusable_mm,
+        )
+        self._segments.replace_for_reel(updated.id, (segment,))
+        self._append_state_event(
+            updated,
+            EventType.REEL_MEASURED,
+            actor_id,
+            reel.version,
+            {
+                "remaining_length_mm": remaining_length_mm,
+                "left_unusable_mm": left_unusable_mm,
+                "right_unusable_mm": right_unusable_mm,
+                "verified": True,
+            },
         )
         return updated
 

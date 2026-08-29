@@ -36,6 +36,8 @@ export interface Reel {
   verification_state: string;
   location_id: string;
   length_confidence: string;
+  left_unusable_mm?: number;
+  right_unusable_mm?: number;
 }
 
 export interface OrderLine {
@@ -183,6 +185,22 @@ export interface ImportResult {
   }[];
 }
 
+export interface ManualCutLane {
+  order_line_id: string;
+  start_mm: number;
+  width_mm: number;
+}
+
+export interface ManualPlanRun {
+  reel_id: string;
+  machine_id: string;
+  crosscut_length_mm: number;
+  crosscut_count: number;
+  lanes: ManualCutLane[];
+  left_trim_mm: number;
+  right_trim_mm: number;
+}
+
 export interface ReelDraft {
   reel_code: string;
   material_spec_id: string;
@@ -218,6 +236,16 @@ export const api = {
   reels: () => request<Reel[]>("/v1/reels"),
   verifyReel: (id: string) =>
     request<Reel>(`/v1/reels/${id}/verify`, { method: "POST", body: "{}" }),
+  measureReel: (
+    id: string,
+    remaining_length_mm: number,
+    left_unusable_mm: number,
+    right_unusable_mm: number,
+  ) =>
+    request<Reel>(`/v1/reels/${id}/measure`, {
+      method: "POST",
+      body: JSON.stringify({ remaining_length_mm, left_unusable_mm, right_unusable_mm }),
+    }),
   quarantineReel: (id: string, reason: string) =>
     request<Reel>(`/v1/reels/${id}/quarantine`, {
       method: "POST",
@@ -234,6 +262,11 @@ export const api = {
     request<{ id: string; status: string }>(`/v1/orders/${id}/cancel`, {
       method: "POST",
       body: "{}",
+    }),
+  completeOrder: (id: string, note?: string) =>
+    request<{ id: string; status: string }>(`/v1/orders/${id}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ note: note ?? null }),
     }),
   locations: () => request<NamedEntity[]>("/v1/locations"),
   createLocation: (name: string) =>
@@ -267,6 +300,11 @@ export const api = {
     request<ExecuteResult>(`/v1/execution/plans/${id}/execute`, {
       method: "POST",
       body: "{}",
+    }),
+  manualExecute: (runs: ManualPlanRun[]) =>
+    request<ExecuteResult & { warnings: string[] }>("/v1/execution/manual", {
+      method: "POST",
+      body: JSON.stringify({ runs }),
     }),
   seedDemo: () => request<{ code: string }>("/v1/demo/seed", { method: "POST", body: "{}" }),
   importReels: (file: File, dryRun: boolean) => {

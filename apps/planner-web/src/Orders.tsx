@@ -45,6 +45,26 @@ export function Orders({
     }
   };
 
+  const complete = async (order: Order) => {
+    if (
+      !window.confirm(
+        `Mark ${order.external_id} as fulfilled?\n\nUse this when it was produced or shipped outside PaperBrain — no paper will be deducted from your rolls.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(order.id);
+    setError(null);
+    try {
+      await api.completeOrder(order.id);
+      await onChange();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not complete the order");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const open = orders.filter((o) => ["confirmed", "released", "running"].includes(o.status));
   const done = orders.filter((o) => o.status === "complete" || o.status === "cancelled");
 
@@ -86,6 +106,7 @@ export function Orders({
               materialById={materialById}
               customerById={customerById}
               onCancel={() => void cancel(order)}
+              onComplete={() => void complete(order)}
               busy={busy === order.id}
             />
           ))}
@@ -99,6 +120,7 @@ export function Orders({
                   materialById={materialById}
                   customerById={customerById}
                   onCancel={() => void cancel(order)}
+                  onComplete={() => void complete(order)}
                   busy={busy === order.id}
                 />
               ))}
@@ -115,12 +137,14 @@ function OrderCard({
   materialById,
   customerById,
   onCancel,
+  onComplete,
   busy,
 }: {
   order: Order;
   materialById: Map<string, Material>;
   customerById: Map<string, string>;
   onCancel: () => void;
+  onComplete: () => void;
   busy: boolean;
 }) {
   const finished = order.status === "complete";
@@ -158,9 +182,14 @@ function OrderCard({
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ color: "#6b7280" }}>Due {formatDate(order.promised_at)}</span>
           {!finished && !cancelled && (
-            <Button small kind="danger" onClick={onCancel} disabled={busy}>
-              Cancel order
-            </Button>
+            <>
+              <Button small onClick={onComplete} disabled={busy}>
+                ✓ Mark fulfilled
+              </Button>
+              <Button small kind="danger" onClick={onCancel} disabled={busy}>
+                Cancel order
+              </Button>
+            </>
           )}
         </div>
       </div>

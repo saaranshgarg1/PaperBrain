@@ -156,13 +156,13 @@ export function Field({
   hint,
   children,
 }: {
-  label: string;
+  label?: string;
   hint?: string;
   children: ReactNode;
 }) {
   return (
     <label style={{ display: "block" }}>
-      <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{label}</div>
+      {label && <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{label}</div>}
       {hint && <div style={{ color: "#9ca3af", fontSize: 12, marginBottom: 4 }}>{hint}</div>}
       {children}
     </label>
