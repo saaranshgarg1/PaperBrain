@@ -147,6 +147,19 @@ class InMemoryEventStore(EventStore):
     def for_aggregate(self, aggregate_id: UUID) -> tuple[DomainEvent, ...]:
         return tuple(self._events.get(aggregate_id, ()))
 
+    def list_all(self) -> tuple[DomainEvent, ...]:
+        with self._lock:
+            return tuple(
+                event for events in self._events.values() for event in events
+            )
+
+    def restore(self, events: tuple[DomainEvent, ...]) -> None:
+        """Bulk-load a previously persisted event stream (no version checks)."""
+        with self._lock:
+            self._events = {}
+            for event in events:
+                self._events.setdefault(event.aggregate_id, []).append(event)
+
 
 class InMemoryPlanRepository(PlanRepository):
     def __init__(self) -> None:

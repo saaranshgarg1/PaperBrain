@@ -191,6 +191,43 @@ class PlanRunResponse(ApiModel):
     sequence: int
 
 
+class PatternLaneResponse(ApiModel):
+    order_line_id: UUID
+    start_mm: int
+    width_mm: int
+    position: int
+
+
+class PatternResponse(ApiModel):
+    id: UUID
+    machine_id: UUID
+    crosscut_length_mm: int
+    lanes: tuple[PatternLaneResponse, ...]
+    left_trim_mm: int
+    right_trim_mm: int
+    kerf_total_mm: int
+    usable_width_mm: int
+
+
+class OrderLineSummaryResponse(ApiModel):
+    id: UUID
+    order_id: UUID
+    sheet_width_mm: int
+    sheet_length_mm: int
+    quantity_required: int
+    quantity_min: int
+    quantity_max: int
+    due_at: datetime
+    material_spec_id: UUID
+
+
+class ReelSummaryResponse(ApiModel):
+    id: UUID
+    reel_code: str
+    nominal_width_mm: int
+    state: str
+
+
 class PlanningResponse(ApiModel):
     plan_id: UUID
     snapshot_id: UUID
@@ -204,6 +241,22 @@ class PlanningResponse(ApiModel):
     violations: tuple[ViolationResponse, ...]
     warnings: tuple[str, ...]
     required_confirmations: tuple[str, ...]
+    created_at: datetime | None = None
+    patterns: tuple[PatternResponse, ...] = ()
+    order_lines: tuple[OrderLineSummaryResponse, ...] = ()
+    reels: tuple[ReelSummaryResponse, ...] = ()
+
+
+class PlanSummaryResponse(ApiModel):
+    plan_id: UUID
+    created_at: datetime | None = None
+    status: str
+    policy_name: str
+    run_count: int
+    validation_valid: bool | None = None
+    material_loss_minor: int = 0
+    fresh_reels_opened: int = 0
+    service_shortage_sheets: int = 0
 
 
 class ErrorResponse(ApiModel):

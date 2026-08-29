@@ -1,2 +1,14 @@
 .claude
 graphify-out
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# runtime state (hotstart snapshots)
+data/
+
+# frontend build output & deps
+apps/planner-web/dist/
+apps/planner-web/node_modules/

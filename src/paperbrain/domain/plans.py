@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -71,6 +72,7 @@ class Plan:
     warnings: tuple[str, ...] = ()
     required_confirmations: tuple[str, ...] = ()
     id: UUID = field(default_factory=uuid4)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:
         sequences = [run.sequence for run in self.runs]
